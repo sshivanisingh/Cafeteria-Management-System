@@ -8,6 +8,7 @@ import Login from "./components/Auth/Login";
 import SignUp from "./components/Auth/SignUp";
 import About from "./components/About/About";
 import NotFound from "./components/NotFound/NotFound";
+import AdminPanel from "./components/AdminPanel/AdminPanel";
 
 const App = () => {
   return (
@@ -23,10 +24,26 @@ const App = () => {
             }
           />
           <Route
+            path="/admin"
+            element={
+              <ProtectedRoute>
+                <AdminPanel />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/about"
             element={
               <ProtectedRoute>
                 <About />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute>
+                <AdminPanel />
               </ProtectedRoute>
             }
           />

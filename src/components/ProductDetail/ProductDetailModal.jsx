@@ -1,20 +1,40 @@
 import { Modal } from "react-bootstrap";
 import { motion } from "framer-motion";
 import { FaPlus, FaTimes } from "react-icons/fa";
+import { toast } from "react-toastify";
 import "./ProductDetailModal.css";
 
 const ProductDetailModal = ({ show, handleClose, product, addToCart }) => {
   if (!product) return null;
 
   const handleAddToCart = () => {
-    addToCart(product);
+    if (product.quantity <= 0) {
+      toast.error("This product is out of stock.");
+      return;
+    }
+
+    const result = addToCart(product);
+
+    // If addToCart returns false when stock is insufficient
+    if (result === false) {
+      toast.warning("No more items available in stock.");
+      return;
+    }
+
     handleClose();
   };
 
   return (
-    <Modal show={show} onHide={handleClose} centered className="product-detail-modal">
+    <Modal
+      show={show}
+      onHide={handleClose}
+      centered
+      className="product-detail-modal"
+    >
       <Modal.Header className="product-detail-header">
-        <Modal.Title className="product-detail-title">{product.name}</Modal.Title>
+        <Modal.Title className="product-detail-title">
+          {product.name}
+        </Modal.Title>
       </Modal.Header>
 
       <Modal.Body className="product-detail-body">
@@ -29,15 +49,13 @@ const ProductDetailModal = ({ show, handleClose, product, addToCart }) => {
             alt={product.name}
             className="product-detail-image"
           />
+
           <div className="product-detail-info">
             <div className="info-section">
               <span className="info-label">Price</span>
-              <span className="info-value price">₹{product.price.toFixed(2)}</span>
-            </div>
-            <div className="info-section">
-              <span className="info-label">Availability</span>
-              <span className={`info-value availability ${product.quantity > 0 ? "in-stock" : "out-of-stock"}`}>
-                {product.quantity > 0 ? `${product.quantity} Available` : "Out of Stock"}
+
+              <span className="info-value price">
+                ₹{product.price.toFixed(2)}
               </span>
             </div>
           </div>
@@ -47,11 +65,16 @@ const ProductDetailModal = ({ show, handleClose, product, addToCart }) => {
           className="product-description"
           initial={{ y: 10, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.3, delay: 0.2 }}
+          transition={{
+            duration: 0.3,
+            delay: 0.2,
+          }}
         >
           <h6 className="description-title">Description</h6>
+
           <p className="description-text">
-            {product.description || "No description available for this product."}
+            {product.description ||
+              "No description available for this product."}
           </p>
         </motion.div>
       </Modal.Body>
@@ -65,10 +88,11 @@ const ProductDetailModal = ({ show, handleClose, product, addToCart }) => {
         >
           <FaTimes /> Close
         </motion.button>
+
         <motion.button
           className="btn-add-detail"
           onClick={handleAddToCart}
-          disabled={product.quantity === 0}
+          disabled={product.quantity <= 0}
           whileHover={product.quantity > 0 ? { scale: 1.05 } : {}}
           whileTap={product.quantity > 0 ? { scale: 0.95 } : {}}
         >

@@ -32,7 +32,7 @@ const Header = ({
           transition={{ duration: 0.3 }}
         >
           <Link to="/" className="logo-link" onClick={onHomeClick}>
-            <span className="logo-text">🥘 Canteen</span>
+            <span className="logo-text">🥘 Cafeteria</span>
           </Link>
         </motion.div>
 

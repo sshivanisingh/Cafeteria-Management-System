@@ -9,14 +9,14 @@ import SummaryComponent from "./SummaryComponent.jsx";
 import BestSellersComponent from "./BestSellersComponent.jsx";
 import AddProductForm from "./AddProductForm.jsx";
 import UpdateQuantityForm from "./UpdateQuantityForm.jsx";
-import { useNavigate } from 'react-router-dom';
-import useAdmin from '../../hooks/useAdmin.jsx';
+import { useNavigate } from "react-router-dom";
+import useAdmin from "../../hooks/useAdmin.jsx";
 import { FaChartLine, FaBox, FaClipboardList } from "react-icons/fa";
 import "./AdminPanel.css";
 
 const AdminPanel = () => {
   const navigate = useNavigate();
-  const isAdmin = useAdmin();
+  const { isAdmin, adminLoading } = useAdmin();
 
   const [salesData, setSalesData] = useState({
     weekly: [],
@@ -24,31 +24,39 @@ const AdminPanel = () => {
     yearly: [],
     bestSellers: [],
   });
+
   const [initialPrices, setInitialPrices] = useState({});
   const [products, setProducts] = useState({});
   const [rawSalesData, setRawSalesData] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState("overview");
   const [loading, setLoading] = useState(true);
 
+  // Date ranges
   const dateRanges = useMemo(() => {
     const now = new Date();
+
     return {
       oneWeekAgo: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+
       oneMonthAgo: new Date(
         now.getFullYear(),
         now.getMonth() - 1,
-        now.getDate()
+        now.getDate(),
       ),
+
       oneYearAgo: new Date(
         now.getFullYear() - 1,
         now.getMonth(),
-        now.getDate()
+        now.getDate(),
       ),
     };
   }, []);
 
+  // Convert Firebase data into chart format
   const convertToChartFormat = useCallback(
     (data) => {
+      if (!data) return [];
+
       return Object.entries(data)
         .map(([id, value]) => ({
           name: products[id]?.name || "Unknown Product",
@@ -56,13 +64,20 @@ const AdminPanel = () => {
         }))
         .filter((item) => item.name !== "Unknown Product");
     },
-    [products]
+    [products],
   );
 
+  // Process sales data
   const processData = useCallback(
     (data) => {
-      if (!data)
-        return { weekly: [], monthly: [], yearly: [], bestSellers: [] };
+      if (!data) {
+        return {
+          weekly: [],
+          monthly: [],
+          yearly: [],
+          bestSellers: [],
+        };
+      }
 
       const bestSellers = {};
       const weekly = {};
@@ -78,20 +93,33 @@ const AdminPanel = () => {
           if (!sale?.items?.length) return;
 
           sale.items.forEach((item) => {
-            if (!item?.id || !item?.quantity || !item?.price) return;
+            if (!item?.id || !item?.quantity || !item?.price) {
+              return;
+            }
 
+            // Best sellers
             bestSellers[item.id] = (bestSellers[item.id] || 0) + item.quantity;
 
+            // Revenue
             const revenue = item.price * item.quantity;
+
+            // Cost
             const cost = (initialPrices[item.id] || 0) * item.quantity;
+
+            // Profit
             const profit = revenue - cost;
 
+            // Weekly
             if (saleDate >= dateRanges.oneWeekAgo) {
               weekly[item.id] = (weekly[item.id] || 0) + profit;
             }
+
+            // Monthly
             if (saleDate >= dateRanges.oneMonthAgo) {
               monthly[item.id] = (monthly[item.id] || 0) + profit;
             }
+
+            // Yearly
             if (saleDate >= dateRanges.oneYearAgo) {
               yearly[item.id] = (yearly[item.id] || 0) + profit;
             }
@@ -107,6 +135,7 @@ const AdminPanel = () => {
         weekly: convertToChartFormat(weekly),
         monthly: convertToChartFormat(monthly),
         yearly: convertToChartFormat(yearly),
+
         bestSellers: sortedBestSellers.map(([id, quantity]) => ({
           id,
           name: products[id]?.name || "Unknown Product",
@@ -114,211 +143,404 @@ const AdminPanel = () => {
         })),
       };
     },
-    [dateRanges, initialPrices, products, convertToChartFormat]
+    [dateRanges, initialPrices, products, convertToChartFormat],
   );
 
+  // Check admin access
   useEffect(() => {
-    if (!isAdmin) {
-      navigate('/');
+    if (!adminLoading && !isAdmin) {
+      navigate("/");
     }
-  }, [isAdmin, navigate]);
+  }, [adminLoading, isAdmin, navigate]);
 
+  // Fetch products
   useEffect(() => {
+    if (adminLoading || !isAdmin) return;
+
     const productsRef = ref(database, "products");
-    const productsUnsubscribe = onValue(productsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const prices = Object.entries(data).reduce((acc, [id, product]) => {
-          acc[id] = product.initialPrice || 0;
-          return acc;
-        }, {});
-        setInitialPrices(prices);
-        setProducts(data);
-      }
-    });
 
-    return () => productsUnsubscribe();
-  }, []);
+    const unsubscribe = onValue(
+      productsRef,
+      (snapshot) => {
+        const data = snapshot.val();
 
+        if (data) {
+          const prices = Object.entries(data).reduce((acc, [id, product]) => {
+            acc[id] = product.initialPrice || 0;
+            return acc;
+          }, {});
+
+          setInitialPrices(prices);
+          setProducts(data);
+        } else {
+          setProducts({});
+          setInitialPrices({});
+        }
+      },
+      (error) => {
+        console.error("Error fetching products:", error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [adminLoading, isAdmin]);
+
+  // Fetch sales
   useEffect(() => {
+    if (adminLoading || !isAdmin) return;
+
     const salesRef = ref(database, "sales");
-    const salesUnsubscribe = onValue(salesRef, (snapshot) => {
-      const data = snapshot.val();
-      setRawSalesData(data);
-      setLoading(false);
-    });
 
-    return () => salesUnsubscribe();
-  }, []);
+    const unsubscribe = onValue(
+      salesRef,
+      (snapshot) => {
+        const data = snapshot.val();
 
+        setRawSalesData(data);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error fetching sales:", error);
+
+        setLoading(false);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [adminLoading, isAdmin]);
+
+  // Process sales when products and sales are available
   useEffect(() => {
     if (rawSalesData && Object.keys(products).length > 0) {
       const processedData = processData(rawSalesData);
+
       setSalesData(processedData);
     }
   }, [rawSalesData, products, processData]);
 
+  // Admin tabs
   const adminTabs = [
-    { id: 'overview', label: 'Overview', icon: FaChartLine },
-    { id: 'products', label: 'Products', icon: FaBox },
-    { id: 'orders', label: 'Orders', icon: FaClipboardList }
+    {
+      id: "overview",
+      label: "Overview",
+      icon: FaChartLine,
+    },
+    {
+      id: "products",
+      label: "Products",
+      icon: FaBox,
+    },
+    {
+      id: "orders",
+      label: "Orders",
+      icon: FaClipboardList,
+    },
   ];
+
+  // Wait while checking admin
+  if (adminLoading) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <h4>Checking admin access...</h4>
+      </div>
+    );
+  }
+
+  // Don't render if not admin
+  if (!isAdmin) {
+    return null;
+  }
 
   return (
     <Container fluid className="admin-panel-container">
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
+        initial={{
+          opacity: 0,
+          y: 20,
+        }}
+        animate={{
+          opacity: 1,
+          y: 0,
+        }}
+        transition={{
+          duration: 0.5,
+        }}
         className="admin-wrapper"
       >
+        {/* Header */}
         <div className="admin-header">
           <h1 className="admin-title">Admin Dashboard</h1>
-          <p className="admin-subtitle">Manage your canteen operations efficiently</p>
+
+          <p className="admin-subtitle">
+            Manage your canteen operations efficiently
+          </p>
         </div>
 
-        {isAdmin && (
-          <>
-            <div className="admin-tabs">
-              {adminTabs.map((tab) => (
-                <motion.button
-                  key={tab.id}
-                  className={`admin-tab ${activeTab === tab.id ? 'active' : ''}`}
-                  onClick={() => setActiveTab(tab.id)}
-                  whileHover={{ y: -2 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <tab.icon className="tab-icon" />
-                  {tab.label}
-                </motion.button>
-              ))}
-            </div>
+        {/* Tabs */}
+        <div className="admin-tabs">
+          {adminTabs.map((tab) => (
+            <motion.button
+              key={tab.id}
+              className={`admin-tab ${activeTab === tab.id ? "active" : ""}`}
+              onClick={() => setActiveTab(tab.id)}
+              whileHover={{
+                y: -2,
+              }}
+              whileTap={{
+                scale: 0.98,
+              }}
+            >
+              <tab.icon className="tab-icon" />
 
-            <AnimatePresence mode="wait">
-              {activeTab === 'overview' && (
-                <motion.div
-                  key="overview"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.3 }}
-                  className="admin-content"
-                >
-                  {loading ? (
-                    <div className="loading-state">
-                      <div className="spinner"></div>
-                      <p>Loading analytics...</p>
-                    </div>
-                  ) : (
-                    <>
-                      <Row className="statistics-row">
-                        <Col xs={12} md={12} lg={12}>
-                          <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.3, delay: 0.1 }}
-                          >
-                            <ChartComponent
-                              data={salesData.weekly}
-                              title="Weekly Profit Distribution"
-                            />
-                            <SummaryComponent data={salesData.weekly} title="Weekly" />
-                          </motion.div>
-                        </Col>
-                        <Col xs={12} md={12} lg={12}>
-                          <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.3, delay: 0.15 }}
-                          >
-                            <ChartComponent
-                              data={salesData.monthly}
-                              title="Monthly Profit Distribution"
-                            />
-                            <SummaryComponent data={salesData.monthly} title="Monthly" />
-                          </motion.div>
-                        </Col>
-                        <Col xs={12} md={12} lg={12}>
-                          <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.3, delay: 0.2 }}
-                          >
-                            <ChartComponent
-                              data={salesData.yearly}
-                              title="Yearly Profit Distribution"
-                            />
-                            <SummaryComponent data={salesData.yearly} title="Yearly" />
-                          </motion.div>
-                        </Col>
-                      </Row>
-                      <Row className="sellers-row">
-                        <Col xs={12}>
-                          <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.3, delay: 0.25 }}
-                          >
-                            <BestSellersComponent bestSellers={salesData.bestSellers} />
-                          </motion.div>
-                        </Col>
-                      </Row>
-                    </>
-                  )}
-                </motion.div>
-              )}
+              {tab.label}
+            </motion.button>
+          ))}
+        </div>
 
-              {activeTab === 'products' && (
-                <motion.div
-                  key="products"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.3 }}
-                  className="admin-content"
-                >
-                  <Row>
-                    <Col xs={12} md={6}>
+        <AnimatePresence mode="wait">
+          {/* ================= OVERVIEW ================= */}
+          {activeTab === "overview" && (
+            <motion.div
+              key="overview"
+              initial={{
+                opacity: 0,
+                y: 20,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              exit={{
+                opacity: 0,
+                y: -20,
+              }}
+              transition={{
+                duration: 0.3,
+              }}
+              className="admin-content"
+            >
+              {loading ? (
+                <div className="loading-state">
+                  <div className="spinner"></div>
+
+                  <p>Loading analytics...</p>
+                </div>
+              ) : (
+                <>
+                  {/* Weekly */}
+                  <Row className="statistics-row">
+                    <Col xs={12} md={12} lg={12}>
                       <motion.div
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ duration: 0.3 }}
+                        initial={{
+                          opacity: 0,
+                          y: 20,
+                        }}
+                        animate={{
+                          opacity: 1,
+                          y: 0,
+                        }}
+                        transition={{
+                          duration: 0.3,
+                          delay: 0.1,
+                        }}
                       >
-                        <AddProductForm />
+                        <ChartComponent
+                          data={salesData.weekly}
+                          title="Weekly Profit Distribution"
+                        />
+
+                        <SummaryComponent
+                          data={salesData.weekly}
+                          title="Weekly"
+                        />
                       </motion.div>
                     </Col>
-                    <Col xs={12} md={6}>
+
+                    {/* Monthly */}
+                    <Col xs={12} md={12} lg={12}>
                       <motion.div
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ duration: 0.3 }}
+                        initial={{
+                          opacity: 0,
+                          y: 20,
+                        }}
+                        animate={{
+                          opacity: 1,
+                          y: 0,
+                        }}
+                        transition={{
+                          duration: 0.3,
+                          delay: 0.15,
+                        }}
                       >
-                        <UpdateQuantityForm products={products} setProducts={setProducts} />
+                        <ChartComponent
+                          data={salesData.monthly}
+                          title="Monthly Profit Distribution"
+                        />
+
+                        <SummaryComponent
+                          data={salesData.monthly}
+                          title="Monthly"
+                        />
+                      </motion.div>
+                    </Col>
+
+                    {/* Yearly */}
+                    <Col xs={12} md={12} lg={12}>
+                      <motion.div
+                        initial={{
+                          opacity: 0,
+                          y: 20,
+                        }}
+                        animate={{
+                          opacity: 1,
+                          y: 0,
+                        }}
+                        transition={{
+                          duration: 0.3,
+                          delay: 0.2,
+                        }}
+                      >
+                        <ChartComponent
+                          data={salesData.yearly}
+                          title="Yearly Profit Distribution"
+                        />
+
+                        <SummaryComponent
+                          data={salesData.yearly}
+                          title="Yearly"
+                        />
                       </motion.div>
                     </Col>
                   </Row>
-                </motion.div>
-              )}
 
-              {activeTab === 'orders' && (
-                <motion.div
-                  key="orders"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.3 }}
-                  className="admin-content"
-                >
-                  <Row>
+                  {/* Best Sellers */}
+                  <Row className="sellers-row">
                     <Col xs={12}>
-                      <OrderHistory isAdmin={true} />
+                      <motion.div
+                        initial={{
+                          opacity: 0,
+                          y: 20,
+                        }}
+                        animate={{
+                          opacity: 1,
+                          y: 0,
+                        }}
+                        transition={{
+                          duration: 0.3,
+                          delay: 0.25,
+                        }}
+                      >
+                        <BestSellersComponent
+                          bestSellers={salesData.bestSellers}
+                        />
+                      </motion.div>
                     </Col>
                   </Row>
-                </motion.div>
+                </>
               )}
-            </AnimatePresence>
-          </>
-        )}
+            </motion.div>
+          )}
+
+          {/* ================= PRODUCTS ================= */}
+          {activeTab === "products" && (
+            <motion.div
+              key="products"
+              initial={{
+                opacity: 0,
+                y: 20,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              exit={{
+                opacity: 0,
+                y: -20,
+              }}
+              transition={{
+                duration: 0.3,
+              }}
+              className="admin-content"
+            >
+              <Row>
+                <Col xs={12} md={6}>
+                  <motion.div
+                    initial={{
+                      opacity: 0,
+                      x: -20,
+                    }}
+                    animate={{
+                      opacity: 1,
+                      x: 0,
+                    }}
+                    transition={{
+                      duration: 0.3,
+                    }}
+                  >
+                    <AddProductForm />
+                  </motion.div>
+                </Col>
+
+                <Col xs={12} md={6}>
+                  <motion.div
+                    initial={{
+                      opacity: 0,
+                      x: 20,
+                    }}
+                    animate={{
+                      opacity: 1,
+                      x: 0,
+                    }}
+                    transition={{
+                      duration: 0.3,
+                    }}
+                  >
+                    <UpdateQuantityForm
+                      products={products}
+                      setProducts={setProducts}
+                    />
+                  </motion.div>
+                </Col>
+              </Row>
+            </motion.div>
+          )}
+
+          {/* ================= ORDERS ================= */}
+          {activeTab === "orders" && (
+            <motion.div
+              key="orders"
+              initial={{
+                opacity: 0,
+                y: 20,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              exit={{
+                opacity: 0,
+                y: -20,
+              }}
+              transition={{
+                duration: 0.3,
+              }}
+              className="admin-content"
+            >
+              <Row>
+                <Col xs={12}>
+                  <OrderHistory isAdmin={true} />
+                </Col>
+              </Row>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </Container>
   );
